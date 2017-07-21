@@ -12,21 +12,14 @@ import (
 
 func main() {
 
-	db, err := sql.Open("sqlite3", "./foo.db")
-	if err != nil {
-		log.Fatalf("Could not connect to db, %v", err)
-	}
-	createQuery := "CREATE TABLE IF NOT EXISTS ext_photos(id INTEGER PRIMARY KEY AUTOINCREMENT, key VARCHAR(255), file_hash CHAR(35))"
-	stmt, err := db.Prepare(createQuery)
-	if err != nil {
-		log.Fatalf("Could not prepare create table query: %v", err)
-	}
-	stmt.Exec()
-	stmt.Close()
+	db := initDB()
+	createTables(db)
 
 	bucket := "build33-photos-raw"
 	sess := session.New()
 	svc := s3.New(sess)
+
+	db.Exec("BEGIN TRANSACTION")
 
 	insertQuery := "INSERT INTO ext_photos (file_hash, key) VALUES (?, ?)"
 	insertStmt, err := db.Prepare(insertQuery)
@@ -50,5 +43,27 @@ func main() {
 	if err != nil {
 		log.Fatalf("Unable to list items in bucket %q, %v", bucket, err)
 	}
+
+	db.Exec("END TRANSACTION")
+
 	fmt.Println(objectNum)
+}
+
+func initDB() *sql.DB {
+	db, err := sql.Open("sqlite3", "./foo.db")
+	if err != nil {
+		log.Fatalf("Could not connect to db, %v", err)
+	}
+	db.Exec("PRAGMA synchronous = OFF")
+	return db
+}
+
+func createTables(db *sql.DB) {
+	createQuery := "CREATE TABLE IF NOT EXISTS ext_photos(id INTEGER PRIMARY KEY AUTOINCREMENT, key VARCHAR(255), file_hash CHAR(35))"
+	stmt, err := db.Prepare(createQuery)
+	if err != nil {
+		log.Fatalf("Could not prepare create table query: %v", err)
+	}
+	stmt.Exec()
+	stmt.Close()
 }
