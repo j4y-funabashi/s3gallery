@@ -11,17 +11,20 @@ import (
 )
 
 func main() {
+	bucket := "build33-photos-raw"
+	importData(bucket)
+}
 
+func importData(bucket string) {
 	db := initDB()
 	createTables(db)
 
-	bucket := "build33-photos-raw"
 	sess := session.New()
 	s3svc := s3.New(sess)
 
 	db.Exec("BEGIN TRANSACTION")
 
-	insertQuery := "INSERT INTO ext_photos (file_hash, key) VALUES (?, ?)"
+	insertQuery := "REPLACE INTO ext_photos (file_hash, key) VALUES (?, ?)"
 	insertStmt, err := db.Prepare(insertQuery)
 	if err != nil {
 		log.Fatalf("Could not prepare insert query: %v", err)
@@ -35,7 +38,10 @@ func main() {
 		func(page *s3.ListObjectsOutput, lastPage bool) bool {
 			for _, value := range page.Contents {
 				etag := *value.ETag
-				insertStmt.Exec(etag[1:len(etag)-1], *value.Key)
+				_, err := insertStmt.Exec(etag[1:len(etag)-1], *value.Key)
+				if err != nil {
+					log.Fatalf("Could not insert: %v", err)
+				}
 				objectCount++
 			}
 			return true
