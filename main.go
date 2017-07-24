@@ -6,8 +6,12 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	_ "github.com/mattn/go-sqlite3"
+	"io/ioutil"
 	"log"
+	"os"
+	"strings"
 )
 
 func main() {
@@ -21,6 +25,7 @@ func importData(bucket string) {
 
 	sess := session.New()
 	s3svc := s3.New(sess)
+	s3manager := s3manager.NewDownloader(sess)
 
 	db.Exec("BEGIN TRANSACTION")
 
@@ -38,7 +43,25 @@ func importData(bucket string) {
 		func(page *s3.ListObjectsOutput, lastPage bool) bool {
 			for _, value := range page.Contents {
 				etag := *value.ETag
-				_, err := insertStmt.Exec(etag[1:len(etag)-1], *value.Key)
+				key := *value.Key
+				if strings.ToLower(key[len(key)-3:len(key)]) != "jpg" {
+					continue
+				}
+
+				// download file
+				file, err := ioutil.TempFile("", "")
+				if err != nil {
+					log.Fatalf("Could not create temp file: %v", err)
+				}
+				input := s3.GetObjectInput{Bucket: &bucket, Key: value.Key}
+				_, err = s3manager.Download(file, &input)
+				if err != nil {
+					log.Fatalf("Could not download file: %v", err)
+				}
+				os.Remove(file.Name())
+
+				// insert to db
+				_, err = insertStmt.Exec(etag[1:len(etag)-1], *value.Key)
 				if err != nil {
 					log.Fatalf("Could not insert: %v", err)
 				}
