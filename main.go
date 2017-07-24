@@ -17,7 +17,7 @@ func main() {
 
 	bucket := "build33-photos-raw"
 	sess := session.New()
-	svc := s3.New(sess)
+	s3svc := s3.New(sess)
 
 	db.Exec("BEGIN TRANSACTION")
 
@@ -28,15 +28,15 @@ func main() {
 	}
 	defer insertStmt.Close()
 	params := &s3.ListObjectsInput{Bucket: aws.String(bucket)}
-	pageNum := 0
-	objectNum := 0
-	err = svc.ListObjectsPages(
+	objectCount := 0
+
+	err = s3svc.ListObjectsPages(
 		params,
 		func(page *s3.ListObjectsOutput, lastPage bool) bool {
-			pageNum++
 			for _, value := range page.Contents {
-				insertStmt.Exec(*value.ETag, *value.Key)
-				objectNum++
+				etag := *value.ETag
+				insertStmt.Exec(etag[1:len(etag)-1], *value.Key)
+				objectCount++
 			}
 			return true
 		})
@@ -46,7 +46,7 @@ func main() {
 
 	db.Exec("END TRANSACTION")
 
-	fmt.Println(objectNum)
+	fmt.Println(objectCount)
 }
 
 func initDB() *sql.DB {
@@ -59,7 +59,7 @@ func initDB() *sql.DB {
 }
 
 func createTables(db *sql.DB) {
-	createQuery := "CREATE TABLE IF NOT EXISTS ext_photos(id INTEGER PRIMARY KEY AUTOINCREMENT, key VARCHAR(255), file_hash CHAR(35))"
+	createQuery := "CREATE TABLE IF NOT EXISTS ext_photos(id INTEGER PRIMARY KEY AUTOINCREMENT, key VARCHAR(255) UNIQUE, file_hash CHAR(35))"
 	stmt, err := db.Prepare(createQuery)
 	if err != nil {
 		log.Fatalf("Could not prepare create table query: %v", err)
